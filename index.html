@@ -268,6 +268,7 @@ button.sticker{cursor:pointer}
       <div class="or">o con tu correo</div>
       <form id="fEmail" novalidate>
         <label class="f" for="email">Tu correo electrónico<span>Te enviaremos un código para entrar. No necesitas contraseña.</span></label>
+        <p class="note" id="emailHint" style="text-align:left;margin:0;color:var(--ink);font-weight:600" hidden></p>
         <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="nombre@correo.com" maxlength="120">
         <div class="err-msg" id="eEmail"></div>
         <button class="btn full" type="submit">Enviar código</button>
@@ -294,6 +295,15 @@ button.sticker{cursor:pointer}
       <button class="btn full" type="submit">Crear mi cuenta</button>
     </form>
     <p class="demo-tag" id="demoTag" hidden>Modo demo: no se envían correos. Usa el código <strong>123456</strong>. El botón de Google simula el inicio de sesión.</p>
+  </section>
+
+  <!-- SIN CONEXIÓN -->
+  <section data-view="sinconexion" hidden>
+    <div class="result bad">
+      <div class="msg">No pudimos conectar</div>
+      <div class="sub">Tu sesión sigue guardada. Revisa tu internet y vuelve a intentar.</div>
+      <button class="btn" id="retryBtn">Reintentar</button>
+    </div>
   </section>
 
   <!-- INICIO -->
@@ -550,7 +560,9 @@ const APP_URL = "https://msirias90-web.github.io/birria-express/";  // direcció
 const PAIS = "+506";            // Costa Rica (para el celular opcional)
 
 const DEMO = !(SUPABASE_URL && SUPABASE_ANON_KEY);
-const sb = !DEMO && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const sb = !DEMO && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, storage:window.localStorage}
+}) : null;
 
 /* Fotos incluidas en la app (por nombre de producto). En Supabase también puedes usar la columna imagen_url. */
 const FOTOS={
@@ -740,7 +752,8 @@ const api = DEMO ? {
   async deleteAviso(id){const {error}=await sb.from("avisos").delete().eq("id",id);if(error)throw new Error(error.message)},
   async profile(){
     const user=await api.session();if(!user)return null;
-    const {data:p}=await sb.from("perfiles").select("nombre,cumpleanos,telefono,acepta_promos").eq("id",user.id).maybeSingle();
+    const {data:p,error:e1}=await sb.from("perfiles").select("nombre,cumpleanos,telefono,acepta_promos").eq("id",user.id).maybeSingle();
+    if(e1)throw new Error("sin-conexion");
     if(!p)return null;
     const {data:s}=await sb.from("saldos").select("saldo,acumulado").eq("id",user.id).maybeSingle();
     return {...p,saldo:s?.saldo||0,acumulado:s?.acumulado||0};
@@ -774,7 +787,7 @@ function go(v){
   view=v;
   document.querySelectorAll("[data-view]").forEach(s=>s.hidden=s.dataset.view!==v);
   document.querySelectorAll("nav button").forEach(b=>b.dataset.go===v?b.setAttribute("aria-current","page"):b.removeAttribute("aria-current"));
-  const logged=v!=="registro";
+  const logged=v!=="registro"&&v!=="sinconexion";
   $("nav").hidden=!logged;$("hdrPts").hidden=!logged;
   if(logged)render();
   if(v==="admin")loadAdmin();
@@ -1071,7 +1084,7 @@ $("fCode").addEventListener("submit",async e=>{
   e.preventDefault();
   const c=$("code").value.replace(/\D/g,"");
   if(c.length<6){$("eCode").textContent="Escribe el código completo que te llegó al correo.";return}
-  try{await api.verify(correo,c);$("eCode").textContent="";await trasEntrar()}
+  try{await api.verify(correo,c);$("eCode").textContent="";store.set("be-email",correo);await trasEntrar()}
   catch(err){$("eCode").textContent=err.message}
 });
 $("fData").addEventListener("submit",async e=>{
@@ -1086,6 +1099,7 @@ $("fData").addEventListener("submit",async e=>{
   catch(err){$("eData").textContent=err.message}
 });
 async function enterApp(){
+  try{const u=await api.session();if(u?.email)store.set("be-email",u.email)}catch(e){}
   [MENU,REWARDS,STAFF]=await Promise.all([api.menu(),api.rewards(),api.isStaff()]);
   await refresh();
   const pend=store.get("be-pending");
@@ -1146,12 +1160,23 @@ document.addEventListener("click",async e=>{
   if(delEnlace){store.set("be-pending",delEnlace);try{history.replaceState(null,"",location.pathname)}catch(e){}}
   $("pendingBanner").hidden=!store.get("be-pending");
   regStep(1);
-  try{
-    const user=await api.session();
-    if(user&&await api.profile())await enterApp();
-    else{if(user){$("name").value=nombreSugerido(user);regStep(3)}go("registro")}
-  }catch(err){go("registro");toast("No pudimos conectar con el servidor.",true)}
+  const ultimo=store.get("be-email");
+  if(ultimo){$("email").value=ultimo;$("emailHint").textContent="Ya tienes cuenta con "+ultimo+". Toca Enviar código para entrar de nuevo.";$("emailHint").hidden=false}
+  await arrancar();
 })();
+async function arrancar(){
+  let user=null;
+  try{user=await api.session()}catch(e){}
+  if(!user){go("registro");return}
+  // Si el servidor tarda más de 10 segundos, mostramos "Reintentar" en vez de una pantalla vacía
+  const limite=new Promise((_,rej)=>setTimeout(()=>rej(new Error("sin-conexion")),10000));
+  try{
+    const perfil=await Promise.race([api.profile(),limite]);
+    if(perfil)await Promise.race([enterApp(),limite]);
+    else{$("name").value=nombreSugerido(user);regStep(3);go("registro")}
+  }catch(err){go("sinconexion")}
+}
+$("retryBtn").addEventListener("click",async()=>{$("retryBtn").disabled=true;await arrancar();$("retryBtn").disabled=false});
 </script>
 
 </body>
