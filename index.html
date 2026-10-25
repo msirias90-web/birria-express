@@ -139,7 +139,14 @@ select:focus-visible,textarea:focus-visible{outline:3px solid var(--brand-deep);
 .pr .d{font-size:12px;color:var(--muted)}
 .pr .acts{display:flex;gap:6px}
 .pr .acts .btn{padding:7px 10px;font-size:12px}
-.pm{display:grid;grid-template-columns:1fr 112px;gap:2px 12px;padding:10px 14px;border-top:1.5px dashed var(--line);align-items:center}
+.pm{display:grid;grid-template-columns:44px minmax(0,1fr) 78px auto;gap:2px 10px;padding:10px 12px;border-top:1.5px dashed var(--line);align-items:center}
+.pm .th{width:44px;height:44px;border-radius:10px;background:var(--soft);overflow:hidden;display:grid;place-items:center;color:var(--brand-deep);font-weight:700}
+.pm .th img{width:100%;height:100%;object-fit:cover}
+.pm .btn{padding:8px 10px;font-size:12px}
+.scrolly{max-height:380px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.foto-edit{display:grid;grid-template-columns:104px minmax(0,1fr);gap:14px;align-items:center}
+.foto-prev{width:104px;height:104px;border-radius:16px;background:var(--soft);overflow:hidden;display:grid;place-items:center;color:var(--muted);font-size:12px;text-align:center}
+.foto-prev img{width:100%;height:100%;object-fit:cover}
 .pm:first-child{border-top:0}
 .pm .d{font-size:12px;color:var(--muted)}
 .pm input{padding:9px 10px;font-size:15px;text-align:right}
@@ -486,13 +493,40 @@ button.sticker{cursor:pointer}
         <button class="btn full" type="submit">Guardar</button>
       </form>
 
-      <div class="balance">
-        <div class="label">Precio en puntos del menú</div>
-        <p class="note" style="text-align:left;margin:0">Los clientes ven este precio en el menú y pueden canjear el producto. Déjalo vacío si ese producto no se canjea con puntos.</p>
-        <div class="list" id="ptsMenu"></div>
+      <div class="balance" id="menuAdmin">
+        <div class="row"><div class="label">Menú y precios en puntos</div><button class="btn" type="button" id="addProd">+ Agregar producto</button></div>
+        <p class="note" style="text-align:left;margin:0">Toca <b>Editar</b> para cambiar la foto, el nombre, el precio o la descripción. En la casilla van los puntos; si la dejas vacía, ese producto no se canjea con puntos.</p>
+        <div class="list scrolly" id="ptsMenu"></div>
         <div class="err-msg" id="ePtsMenu"></div>
         <button class="btn full" type="button" id="savePtsMenu">Guardar puntos del menú</button>
       </div>
+
+      <form class="balance" id="fProd" novalidate hidden>
+        <div class="label" id="prodTitle">Nuevo producto</div>
+        <div class="foto-edit">
+          <div class="foto-prev" id="prodFoto">Sin foto</div>
+          <div style="display:grid;gap:8px;justify-items:start">
+            <label class="btn ghost filebtn" for="prodFile" id="prodFileLbl">Elegir foto</label>
+            <input type="file" id="prodFile" accept="image/*" hidden>
+            <button class="btn link" type="button" id="prodQuitarFoto">Quitar foto</button>
+          </div>
+        </div>
+        <label class="f" for="prodNombre">Nombre<input id="prodNombre" maxlength="60" placeholder="Ej. Quesabirria"></label>
+        <label class="f" for="prodCat">Categoría<span>Elige una que ya existe o escribe una nueva.</span><input id="prodCat" maxlength="30" list="catsList" placeholder="Ej. Combos"></label>
+        <datalist id="catsList"></datalist>
+        <label class="f" for="prodDesc">Descripción<textarea id="prodDesc" rows="2" maxlength="200" placeholder="Ej. Con queso fundido y consomé"></textarea></label>
+        <label class="f" for="prodNota">Nota opcional<span>Por ejemplo una opción con costo extra.</span><input id="prodNota" maxlength="80" placeholder="Ej. Con papa en gajo + ₡500"></label>
+        <div class="gen">
+          <label class="f" for="prodPrecio">Precio<span>En colones</span><input id="prodPrecio" type="number" inputmode="numeric" min="1" placeholder="4500"></label>
+          <label class="f" for="prodPts">Puntos<span>Vacío = no se canjea</span><input id="prodPts" type="number" inputmode="numeric" min="1" placeholder="—"></label>
+        </div>
+        <div class="err-msg" id="eProd"></div>
+        <button class="btn full" type="submit" id="prodGuardar">Guardar producto</button>
+        <div class="row">
+          <button class="btn ghost" type="button" id="prodCancelar">Cancelar</button>
+          <button class="btn ghost" type="button" id="prodBorrar" style="color:var(--minus)">Eliminar producto</button>
+        </div>
+      </form>
 
       <div class="balance">
         <div class="label">Promociones por fecha</div>
@@ -526,7 +560,7 @@ button.sticker{cursor:pointer}
       <div class="balance">
         <div class="label">Enviar por WhatsApp</div>
         <p class="note" style="text-align:left;margin:0" id="waNote"></p>
-        <label class="f" for="waMsg">Mensaje<span>Escribe {nombre} y se cambia por el nombre de cada cliente.</span><textarea id="waMsg" rows="4" maxlength="900">Hola {nombre}, te saluda Birria Express. </textarea></label>
+        <label class="f" for="waMsg">Mensaje<span>Es el mismo mensaje para todos los clientes.</span><textarea id="waMsg" rows="4" maxlength="900">¡Hola! Te saluda Birria Express. </textarea></label>
         <div class="row" style="justify-content:flex-start"><button class="btn ghost" type="button" id="waCopyNums">Copiar números</button><button class="btn ghost" type="button" id="waCopyMsg">Copiar mensaje</button></div>
         <textarea id="waCopyArea" rows="3" readonly hidden></textarea>
         <div class="list" id="waList"></div>
@@ -680,9 +714,17 @@ const api = DEMO ? {
   async updateAccount(nombre,tel,optin,cumple){if(optin&&!tel)throw new Error("Para recibir promociones por WhatsApp escribe tu celular.");Object.assign(D.profile,{nombre,telefono:tel,acepta_promos:!!optin});if(!D.profile.cumpleanos&&cumple)D.profile.cumpleanos=cumple;demoSave()},
   async profile(){if(!D.profile)return null;const saldo=D.hist.reduce((a,h)=>a+h.v,0),acum=D.hist.filter(h=>h.v>0).reduce((a,h)=>a+h.v,0);return {...D.profile,saldo,acumulado:acum}},
   async isStaff(){return true},
-  async menu(){return DEMO_MENU.map(m=>({...m,pts:(D.ptsMenu&&m.n in D.ptsMenu)?D.ptsMenu[m.n]:m.pts}))},
-  async adminProducts(){return (await api.menu()).map(m=>({id:m.id,nombre:m.n,categoria:m.c,precio:m.p,puntos:m.pts}))},
-  async saveProductPoints(cambios){D.ptsMenu=D.ptsMenu||{};for(const c of cambios){const m=DEMO_MENU.find(x=>x.id===c.id);D.ptsMenu[m.n]=c.puntos}demoSave()},
+  async menu(){if(!D.menu){D.menu=DEMO_MENU.map(m=>({...m,pts:(D.ptsMenu&&m.n in D.ptsMenu)?D.ptsMenu[m.n]:m.pts}));demoSave()}return D.menu},
+  async adminProducts(){return (await api.menu()).map(m=>({id:m.id,nombre:m.n,categoria:m.c,descripcion:m.d,nota:m.o,precio:m.p,puntos:m.pts,imagen_url:m.img}))},
+  async saveProductPoints(cambios){await api.menu();for(const c of cambios){const m=D.menu.find(x=>x.id===c.id);if(m)m.pts=c.puntos}demoSave()},
+  async saveProduct(p){
+    await api.menu();const datos={n:p.nombre,c:p.categoria,d:p.descripcion,o:p.nota,p:p.precio,pts:p.puntos,img:p.imagen_url};
+    if(p.id){Object.assign(D.menu.find(x=>x.id===p.id),datos)}else D.menu.push({id:Math.max(0,...D.menu.map(x=>x.id))+1,...datos});
+    try{demoSave()}catch(e){throw new Error("La foto es muy grande para el modo demo.")}
+  },
+  async deleteProduct(id){await api.menu();D.menu=D.menu.filter(x=>x.id!==id);demoSave()},
+  async uploadPhoto(blob){return await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(blob)})},
+  async removePhoto(){},
   async redeemProduct(id){
     const m=(await api.menu()).find(x=>x.id===id);const p=await api.profile();
     if(!m||!m.pts)throw new Error("Este producto no se puede canjear con puntos.");
@@ -800,7 +842,20 @@ const api = DEMO ? {
   },
   async isStaff(){const user=await api.session();if(!user)return false;const {data}=await sb.from("personal").select("id").eq("id",user.id).maybeSingle();return !!data},
   async menu(){const {data,error}=await sb.from("productos").select("*").eq("activo",true).order("orden");if(error)throw error;return data.map(r=>({id:r.id,c:r.categoria,n:r.nombre,d:r.descripcion,o:r.nota,p:r.precio,pts:r.puntos,img:r.imagen_url}))},
-  async adminProducts(){const {data,error}=await sb.from("productos").select("id,nombre,categoria,precio,puntos").eq("activo",true).order("orden");if(error)throw new Error(error.message);return data},
+  async adminProducts(){const {data,error}=await sb.from("productos").select("id,nombre,categoria,descripcion,nota,precio,puntos,imagen_url,orden").eq("activo",true).order("orden");if(error)throw new Error(error.message);return data},
+  async saveProduct(p){
+    const datos={nombre:p.nombre,categoria:p.categoria,descripcion:p.descripcion||null,nota:p.nota||null,precio:p.precio,puntos:p.puntos,imagen_url:p.imagen_url};
+    if(p.id){const {error}=await sb.from("productos").update(datos).eq("id",p.id);if(error)throw new Error(error.message)}
+    else{const orden=Math.max(0,...PRODS.map(x=>x.orden||0))+1;const {error}=await sb.from("productos").insert({...datos,orden});if(error)throw new Error(error.message)}
+  },
+  async deleteProduct(id){const {error}=await sb.from("productos").delete().eq("id",id);if(error)throw new Error(error.message)},
+  async uploadPhoto(blob){
+    const ruta=`productos/${Date.now()}-${Math.random().toString(36).slice(2,8)}.jpg`;
+    const {error}=await sb.storage.from("menu").upload(ruta,blob,{contentType:"image/jpeg",cacheControl:"31536000"});
+    if(error)throw new Error("No se pudo subir la foto: "+error.message);
+    return sb.storage.from("menu").getPublicUrl(ruta).data.publicUrl;
+  },
+  async removePhoto(url){const m=String(url||"").split("/storage/v1/object/public/menu/")[1];if(m)await sb.storage.from("menu").remove([decodeURIComponent(m)])},
   async saveProductPoints(cambios){for(const c of cambios){const {error}=await sb.from("productos").update({puntos:c.puntos}).eq("id",c.id);if(error)throw new Error(error.message)}},
   async redeemProduct(id){const {data,error}=await sb.rpc("canjear_producto",{p_producto:id});if(error)throw new Error(error.message.includes("insuficientes")?"No te alcanzan los puntos para este producto.":error.message);return data},
   async savePush(endpoint,p256dh,auth){const {error}=await sb.rpc("guardar_suscripcion",{p_endpoint:endpoint,p_p256dh:p256dh,p_auth:auth});if(error)throw new Error(error.message)},
@@ -846,7 +901,8 @@ function regStep(n){
   $("step1").hidden=n!==1;$("fCode").hidden=n!==2;$("fData").hidden=n!==3;
   ["st1","st2","st3"].forEach((id,i)=>$(id).classList.toggle("on",i<n));
 }
-function icon(m){const src=m.img||FOTOS[m.n];return src?`<img src="${esc(src)}" alt="">`:esc(m.n.replace(/^\d+\s*/,"")[0])}
+function fotoDe(img,nombre){return img===""?null:(img||FOTOS[nombre]||null)}
+function icon(m){const src=fotoDe(m.img,m.n);return src?`<img src="${esc(src)}" alt="">`:esc(m.n.replace(/^\d+\s*/,"")[0])}
 
 function render(){
   if(!P)return;
@@ -992,7 +1048,8 @@ let WA_SENT=new Set(), WA_LIST=[];
 async function loadAjustes(){
   const [aj,pr,av,cl,prods,res]=await Promise.all([api.settings(),api.promos(),api.avisos(),api.adminClients(),api.adminProducts(),api.adminSummary().catch(()=>null)]);
   PRODS=prods;
-  $("ptsMenu").innerHTML=prods.map(p=>`<div class="pm"><div style="min-width:0"><strong>${esc(p.nombre)}</strong><div class="d">${esc(p.categoria)} · ${colon(p.precio)}</div></div><input type="number" inputmode="numeric" min="1" max="100000" placeholder="—" aria-label="Puntos para ${esc(p.nombre)}" data-pid="${p.id}" value="${p.puntos??""}"></div>`).join("");
+  $("ptsMenu").innerHTML=prods.length?prods.map(p=>{const f=fotoDe(p.imagen_url,p.nombre);return `<div class="pm"><div class="th">${f?`<img src="${esc(f)}" alt="">`:esc(p.nombre[0].toUpperCase())}</div><div style="min-width:0"><strong>${esc(p.nombre)}</strong><div class="d">${esc(p.categoria)} · ${colon(p.precio)}</div></div><input type="number" inputmode="numeric" min="1" max="100000" placeholder="pts" aria-label="Puntos para ${esc(p.nombre)}" data-pid="${p.id}" value="${p.puntos??""}"><button class="btn ghost" type="button" data-editprod="${p.id}">Editar</button></div>`}).join(""):`<div class="empty">No hay productos. Agrega el primero.</div>`;
+  $("catsList").innerHTML=[...new Set(prods.map(p=>p.categoria))].map(c=>`<option value="${esc(c)}">`).join("");
   const np=res?.clientes_push??0;
   $("pushNote").textContent=np?`${np} ${np===1?"cliente tiene":"clientes tienen"} las notificaciones activadas.`:"Todavía ningún cliente ha activado las notificaciones.";
   AJ=aj||AJ;
@@ -1009,7 +1066,7 @@ async function loadAjustes(){
   $("waNote").textContent=WA_LIST.length?`${WA_LIST.length} ${WA_LIST.length===1?"cliente aceptó":"clientes aceptaron"} recibir promociones. Toca WhatsApp en cada uno para enviarle el mensaje.`:"Todavía ningún cliente ha aceptado recibir promociones por WhatsApp.";
   renderWa();
 }
-function waTexto(c){return $("waMsg").value.replace(/\{nombre\}/gi,(c.nombre||"").replace(/\s*\(ejemplo\)$/,"").split(" ")[0])}
+function waTexto(){return $("waMsg").value.trim()}
 function renderWa(){
   $("waList").innerHTML=WA_LIST.map(c=>{const n=String(c.telefono).replace(/\D/g,"");const local=n.replace(/^506/,"");
     return `<div class="wa-row"><div style="min-width:0"><strong>${esc(c.nombre)}</strong><div class="d">${local.slice(0,4)} ${local.slice(4)}</div></div><a class="wa-btn${WA_SENT.has(c.id)?" sent":""}" data-wasent="${esc(c.id)}" target="_blank" rel="noopener" href="https://wa.me/${n}?text=${encodeURIComponent(waTexto(c))}">${WA_SENT.has(c.id)?"Enviado":"WhatsApp"}</a></div>`}).join("");
@@ -1021,8 +1078,68 @@ async function copiar(txt,okMsg){
   catch(e){const ta=$("waCopyArea");ta.hidden=false;ta.value=txt;ta.focus();ta.select();toast("Selecciona el texto y cópialo")}
 }
 $("waCopyNums").addEventListener("click",()=>{if(!WA_LIST.length){toast("No hay números para copiar",true);return}copiar(WA_LIST.map(c=>"+"+String(c.telefono).replace(/\D/g,"")).join("\n"),`Copiaste ${WA_LIST.length} números`)});
-$("waCopyMsg").addEventListener("click",()=>copiar($("waMsg").value.replace(/\{nombre\}\s*/gi,""),"Mensaje copiado"));
+$("waCopyMsg").addEventListener("click",()=>copiar(waTexto(),"Mensaje copiado"));
 let delPend=null, PRODS=[];
+/* ---------- Editar productos del menú ---------- */
+let EDIT=null;   // {id, img, nuevaFoto, quitar, borrarPend}
+async function achicarFoto(file){
+  // Reduce la foto a 900 px como máximo para que cargue rápido y ocupe poco
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((ok,mal)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>mal(new Error("No se pudo leer la foto. Prueba con otra."));i.src=url});
+    const k=Math.min(1,900/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement("canvas");c.width=Math.round(img.naturalWidth*k);c.height=Math.round(img.naturalHeight*k);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+    return await new Promise(ok=>c.toBlob(ok,"image/jpeg",0.82));
+  }finally{URL.revokeObjectURL(url)}
+}
+function pintarFotoEditor(){
+  const src=EDIT.nuevaFoto?EDIT.preview:(EDIT.quitar?null:fotoDe(EDIT.img,EDIT.nombreOriginal));
+  $("prodFoto").innerHTML=src?`<img src="${esc(src)}" alt="Foto del producto">`:"Sin foto";
+  $("prodFileLbl").textContent=src?"Cambiar foto":"Elegir foto";$("prodQuitarFoto").hidden=!src;
+}
+function abrirEditor(p){
+  EDIT={id:p?.id??null,img:p?.imagen_url??null,nombreOriginal:p?.nombre||"",nuevaFoto:null,preview:null,quitar:false,borrarPend:false};
+  $("prodTitle").textContent=p?"Editar producto":"Nuevo producto";
+  $("prodNombre").value=p?.nombre||"";$("prodCat").value=p?.categoria||"";$("prodDesc").value=p?.descripcion||"";$("prodNota").value=p?.nota||"";
+  $("prodPrecio").value=p?.precio??"";$("prodPts").value=p?.puntos??"";
+  $("prodBorrar").hidden=!p;$("prodBorrar").textContent="Eliminar producto";$("eProd").textContent="";
+  pintarFotoEditor();$("fProd").hidden=false;$("fProd").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function cerrarEditor(){if(EDIT?.preview)URL.revokeObjectURL(EDIT.preview);EDIT=null;$("fProd").hidden=true;$("prodFile").value=""}
+$("addProd").addEventListener("click",()=>abrirEditor(null));
+$("prodCancelar").addEventListener("click",()=>{cerrarEditor();$("menuAdmin").scrollIntoView({behavior:"smooth",block:"start"})});
+$("prodFile").addEventListener("change",async e=>{
+  const f=e.target.files[0];e.target.value="";if(!f||!EDIT)return;
+  try{const blob=await achicarFoto(f);if(EDIT.preview)URL.revokeObjectURL(EDIT.preview);EDIT.nuevaFoto=blob;EDIT.preview=URL.createObjectURL(blob);EDIT.quitar=false;pintarFotoEditor()}
+  catch(err){$("eProd").textContent=err.message}
+});
+$("prodQuitarFoto").addEventListener("click",()=>{if(!EDIT)return;if(EDIT.preview)URL.revokeObjectURL(EDIT.preview);EDIT.nuevaFoto=null;EDIT.preview=null;EDIT.quitar=true;pintarFotoEditor()});
+$("fProd").addEventListener("submit",async e=>{
+  e.preventDefault();if(!EDIT)return;
+  const nombre=$("prodNombre").value.trim(), categoria=$("prodCat").value.trim(), precio=parseInt($("prodPrecio").value,10);
+  const ptsTxt=$("prodPts").value.trim(), puntos=ptsTxt===""?null:parseInt(ptsTxt,10);
+  if(nombre.length<2){$("eProd").textContent="Escribe el nombre del producto.";return}
+  if(categoria.length<2){$("eProd").textContent="Escribe o elige una categoría.";return}
+  if(!(precio>0)){$("eProd").textContent="Escribe el precio en colones.";return}
+  if(ptsTxt!==""&&!(puntos>=1&&puntos<=100000)){$("eProd").textContent="Los puntos deben ser entre 1 y 100.000, o déjalo vacío.";return}
+  $("eProd").textContent="";$("prodGuardar").disabled=true;$("prodGuardar").textContent="Guardando…";
+  try{
+    let img=EDIT.img;
+    if(EDIT.nuevaFoto){img=await api.uploadPhoto(EDIT.nuevaFoto);if(EDIT.img)await api.removePhoto(EDIT.img).catch(()=>{})}
+    else if(EDIT.quitar){if(EDIT.img)await api.removePhoto(EDIT.img).catch(()=>{});img=""}
+    await api.saveProduct({id:EDIT.id,nombre,categoria,descripcion:$("prodDesc").value.trim(),nota:$("prodNota").value.trim(),precio,puntos,imagen_url:img});
+    const nuevo=!EDIT.id;cerrarEditor();MENU=await api.menu();await loadAjustes();
+    toast(nuevo?"Producto agregado al menú":"Producto actualizado");$("menuAdmin").scrollIntoView({behavior:"smooth",block:"start"});
+  }catch(err){$("eProd").textContent=err.message}
+  finally{$("prodGuardar").disabled=false;$("prodGuardar").textContent="Guardar producto"}
+});
+$("prodBorrar").addEventListener("click",async()=>{
+  if(!EDIT?.id)return;
+  if(!EDIT.borrarPend){EDIT.borrarPend=true;$("prodBorrar").textContent="¿Seguro? Eliminar del menú";return}
+  try{const img=EDIT.img;await api.deleteProduct(EDIT.id);if(img)await api.removePhoto(img).catch(()=>{});cerrarEditor();MENU=await api.menu();await loadAjustes();toast("Producto eliminado del menú")}
+  catch(err){$("eProd").textContent=err.message}
+});
 $("savePtsMenu").addEventListener("click",async()=>{
   const cambios=[];let malo=null;
   document.querySelectorAll("#ptsMenu input[data-pid]").forEach(inp=>{
@@ -1059,7 +1176,7 @@ $("fAviso").addEventListener("submit",async e=>{
   if(mensaje.length<2){$("eAviso").textContent="Escribe el mensaje.";return}
   $("eAviso").textContent="";
   try{await api.addAviso({titulo,mensaje,hasta:h?new Date(h+"T23:59:59").toISOString():null});
-    if(!$("waMsg").value.replace(/Hola \{nombre\}, te saluda Birria Express\.\s*/,"").trim())$("waMsg").value=`Hola {nombre}, te saluda Birria Express. ${titulo} ${mensaje}`;
+    if(!$("waMsg").value.replace(/¡Hola! Te saluda Birria Express\.\s*/,"").trim())$("waMsg").value=`¡Hola! Te saluda Birria Express. ${titulo} ${mensaje}`;
     let msg="Aviso publicado en la app";
     if($("avPush").checked){try{const r=await api.sendPush(titulo,mensaje);msg+=". "+(r?.mensaje||"")}catch(err){msg+=", pero la notificación no salió: "+err.message}}
     ["avTitulo","avMensaje","avHasta"].forEach(id=>$(id).value="");await loadAjustes();AVISOS=await api.avisos();toast(msg)}
@@ -1275,6 +1392,7 @@ document.addEventListener("click",async e=>{
     delPend=null;
     try{if(tipo==="p"){await api.deletePromo(id);PROMOS=await api.promos();toast("Promoción borrada")}else{await api.deleteAviso(id);AVISOS=await api.avisos();toast("Aviso quitado")}await loadAjustes()}catch(err){toast(err.message,true)}
   }
+  if(b.dataset.editprod){const id=isNaN(+b.dataset.editprod)?b.dataset.editprod:+b.dataset.editprod;abrirEditor(PRODS.find(p=>p.id===id))}
   if(b.dataset.sheet){const id=+b.dataset.sheet;try{renderSheet(`Tanda #${id}`,await api.loteCodes(id))}catch(err){toast("No pudimos cargar la hoja.",true)}}
   if(b.dataset.anular){
     const id=+b.dataset.anular;
