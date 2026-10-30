@@ -565,6 +565,26 @@ button.sticker{cursor:pointer}
         <button class="btn full" type="submit">Guardar</button>
       </form>
 
+      <div class="balance" id="premiosAdmin">
+        <div class="row"><div class="label">Premios</div><button class="btn" type="button" id="addRw">+ Agregar premio</button></div>
+        <p class="note" style="text-align:left;margin:0">Son los que el cliente ve en la pestaña Premios. <b>Pausar</b> lo oculta sin borrarlo.</p>
+        <div class="list scrolly" id="rwAdmin"></div>
+      </div>
+
+      <form class="balance" id="fRw" novalidate hidden>
+        <div class="label" id="rwTitle">Nuevo premio</div>
+        <label class="f" for="rwNombre">Nombre<input id="rwNombre" maxlength="60" placeholder="Ej. 4 tacos de birria"></label>
+        <label class="f" for="rwDesc">Descripción<span>Opcional</span><input id="rwDesc" maxlength="120" placeholder="Ej. Con culantro, cebolla, sustancia y limón"></label>
+        <label class="f" for="rwCosto">Puntos que cuesta<input id="rwCosto" type="number" inputmode="numeric" min="1" max="100000" placeholder="2800"></label>
+        <label class="check" for="rwActivo"><input type="checkbox" id="rwActivo" checked><span>Visible para los clientes</span></label>
+        <div class="err-msg" id="eRw"></div>
+        <button class="btn full" type="submit" id="rwGuardar">Guardar premio</button>
+        <div class="row">
+          <button class="btn ghost" type="button" id="rwCancelar">Cancelar</button>
+          <button class="btn ghost" type="button" id="rwBorrar" style="color:var(--minus)">Eliminar premio</button>
+        </div>
+      </form>
+
       <div class="balance" id="menuAdmin">
         <div class="row"><div class="label">Menú y precios en puntos</div><button class="btn" type="button" id="addProd">+ Agregar producto</button></div>
         <p class="note" style="text-align:left;margin:0">Toca <b>Editar</b> para cambiar la foto, el nombre, el precio o la descripción. En la casilla van los puntos; si la dejas vacía, ese producto no se canjea con puntos.</p>
@@ -798,6 +818,7 @@ const DEMO_MENU=[
  {c:"Extras",n:"Fresco",d:"Natural",p:800}
 ].map((m,i)=>({...m,id:i+1,pts:DEMO_PTS[m.n]||null}));
 const DEMO_REWARDS=[
+ {id:6,n:"4 tacos de birria",d:"Con culantro, cebolla, sustancia y limón",cost:2800},
  {id:1,n:"Combo personal",d:"Combo personal #1 o #2",cost:4500},
  {id:2,n:"6 tacos de birria",d:"Con culantro, cebolla, sustancia y limón",cost:5000},
  {id:3,n:"8 tacos de birria",d:"Con culantro, cebolla, sustancia y limón",cost:6500},
@@ -842,10 +863,13 @@ const api = DEMO ? {
   async savePush(){D.push=true;demoSave()},
   async deletePush(){D.push=false;demoSave()},
   async sendPush(titulo){return {ok:true,mensaje:`Modo demo: la notificación "${titulo}" se enviaría a ${D.push?1:0} celular.`}},
-  async rewards(){return DEMO_REWARDS},
+  async rewards(){return (await api.adminRewards()).filter(r=>r.activo).map(r=>({id:r.id,n:r.nombre,d:r.descripcion,cost:r.costo}))},
+  async adminRewards(){if(!D.rewards){D.rewards=DEMO_REWARDS.map(r=>({id:r.id,nombre:r.n,descripcion:r.d,costo:r.cost,activo:true}));demoSave()}return [...D.rewards].sort((a,b)=>a.costo-b.costo)},
+  async saveReward(r){await api.adminRewards();if(r.id)Object.assign(D.rewards.find(x=>x.id===r.id),r);else D.rewards.push({...r,id:Math.max(0,...D.rewards.map(x=>x.id))+1});demoSave()},
+  async deleteReward(id){await api.adminRewards();D.rewards=D.rewards.filter(x=>x.id!==id);demoSave()},
   async history(){return D.hist},
   async redeem(id){
-    const r=DEMO_REWARDS.find(x=>x.id===id);const p=await api.profile();
+    const r=(await api.rewards()).find(x=>x.id===id);const p=await api.profile();
     if(p.saldo<r.cost)throw new Error("No te alcanzan los puntos para esta recompensa.");
     const b=new Uint8Array(6);crypto.getRandomValues(b);const code="CJ-"+[...b].map(x=>ALFABETO[x%32]).join("");
     const now=new Date().toISOString();
@@ -971,7 +995,11 @@ const api = DEMO ? {
     const {data,error}=await sb.functions.invoke("enviar-push",{body:{titulo,mensaje}});
     if(error){let m="";try{m=(await error.context.json()).mensaje}catch(e){}throw new Error(m||"No se pudo enviar la notificación. Revisa que la función enviar-push esté publicada en Supabase.")}
     return data},
-  async rewards(){const {data,error}=await sb.from("recompensas").select("*").order("costo");if(error)throw error;return data.map(r=>({id:r.id,n:r.nombre,d:r.descripcion,cost:r.costo}))},
+  async adminRewards(){const {data,error}=await sb.from("recompensas").select("*").order("costo");if(error)throw new Error(error.message);return data},
+  async saveReward(r){const datos={nombre:r.nombre,descripcion:r.descripcion||null,costo:r.costo,activo:r.activo};
+    const {error}=r.id?await sb.from("recompensas").update(datos).eq("id",r.id):await sb.from("recompensas").insert(datos);if(error)throw new Error(error.message)},
+  async deleteReward(id){const {error}=await sb.from("recompensas").delete().eq("id",id);if(error)throw new Error(error.message)},
+  async rewards(){const {data,error}=await sb.from("recompensas").select("*").eq("activo",true).order("costo");if(error)throw error;return data.map(r=>({id:r.id,n:r.nombre,d:r.descripcion,cost:r.costo}))},
   async history(){const {data,error}=await sb.from("movimientos").select("descripcion,puntos,creado,codigo_canje").order("creado",{ascending:false}).limit(50);if(error)throw error;return data.map(r=>({t:r.descripcion+(r.codigo_canje?" · "+r.codigo_canje:""),d:r.creado,v:r.puntos}))},
   async myRedemptions(){const user=await api.session();if(!user)return [];const {data,error}=await sb.from("canjes").select("id,nombre,costo,codigo,estado,creado,cerrado_en").eq("cliente",user.id).order("creado",{ascending:false}).limit(20);if(error)return [];return data},
   async adminSummary(){const {data,error}=await sb.rpc("admin_resumen");if(error)throw new Error(error.message);return data},
@@ -1155,6 +1183,7 @@ let WA_SENT=new Set(), WA_LIST=[];
 async function loadAjustes(){
   const [aj,pr,av,cl,prods,res]=await Promise.all([api.settings(),api.promos(),api.avisos(),api.adminClients(),api.adminProducts(),api.adminSummary().catch(()=>null)]);
   PRODS=prods;
+  await pintarPremiosAdmin();
   $("ptsMenu").innerHTML=prods.length?prods.map(p=>{const f=fotoDe(p.imagen_url,p.nombre);return `<div class="pm"><div class="th">${f?`<img src="${esc(f)}" alt="">`:esc(p.nombre[0].toUpperCase())}</div><div style="min-width:0"><strong>${esc(p.nombre)}</strong><div class="d">${esc(p.categoria)} · ${colon(p.precio)}</div></div><input type="number" inputmode="numeric" min="1" max="100000" placeholder="pts" aria-label="Puntos para ${esc(p.nombre)}" data-pid="${p.id}" value="${p.puntos??""}"><button class="btn ghost" type="button" data-editprod="${p.id}">Editar</button></div>`}).join(""):`<div class="empty">No hay productos. Agrega el primero.</div>`;
   $("catsList").innerHTML=[...new Set(prods.map(p=>p.categoria))].map(c=>`<option value="${esc(c)}">`).join("");
   const np=res?.clientes_push??0;
@@ -1187,6 +1216,39 @@ async function copiar(txt,okMsg){
 $("waCopyNums").addEventListener("click",()=>{if(!WA_LIST.length){toast("No hay números para copiar",true);return}copiar(WA_LIST.map(c=>"+"+String(c.telefono).replace(/\D/g,"")).join("\n"),`Copiaste ${WA_LIST.length} números`)});
 $("waCopyMsg").addEventListener("click",()=>copiar(waTexto(),"Mensaje copiado"));
 let delPend=null, PRODS=[];
+/* ---------- Premios del panel ---------- */
+let RWS=[], RWE=null;
+async function pintarPremiosAdmin(){
+  RWS=await api.adminRewards();
+  $("rwAdmin").innerHTML=RWS.length?RWS.map(r=>`<div class="pr"><div style="min-width:0"><strong>${esc(r.nombre)}</strong> · ${pts(r.costo)} pts<div class="d">${esc(r.descripcion||"")}</div></div><span class="chip-st ${r.activo?"entregado":"cancelado"}">${r.activo?"Visible":"Pausado"}</span><div class="acts"><button class="btn ghost" type="button" data-rwedit="${r.id}">Editar</button><button class="btn ghost" type="button" data-rwtoggle="${r.id}">${r.activo?"Pausar":"Mostrar"}</button></div></div>`).join(""):`<div class="empty">No hay premios. Agrega el primero.</div>`;
+}
+function abrirRw(r){
+  RWE={id:r?.id??null,borrarPend:false};
+  $("rwTitle").textContent=r?"Editar premio":"Nuevo premio";
+  $("rwNombre").value=r?.nombre||"";$("rwDesc").value=r?.descripcion||"";$("rwCosto").value=r?.costo??"";$("rwActivo").checked=r?r.activo:true;
+  $("rwBorrar").hidden=!r;$("rwBorrar").textContent="Eliminar premio";$("eRw").textContent="";
+  $("fRw").hidden=false;$("fRw").scrollIntoView({behavior:"smooth",block:"start"});$("rwNombre").focus({preventScroll:true});
+}
+function cerrarRw(){RWE=null;$("fRw").hidden=true}
+async function trasCambiarPremios(msg){cerrarRw();REWARDS=await api.rewards();await pintarPremiosAdmin();if(P)render();toast(msg);$("premiosAdmin").scrollIntoView({behavior:"smooth",block:"start"})}
+$("addRw").addEventListener("click",()=>abrirRw(null));
+$("rwCancelar").addEventListener("click",()=>{cerrarRw();$("premiosAdmin").scrollIntoView({behavior:"smooth",block:"start"})});
+$("fRw").addEventListener("submit",async e=>{
+  e.preventDefault();if(!RWE)return;
+  const nombre=$("rwNombre").value.trim(), costo=parseInt($("rwCosto").value,10);
+  if(nombre.length<2){$("eRw").textContent="Escribe el nombre del premio.";return}
+  if(!(costo>=1&&costo<=100000)){$("eRw").textContent="Escribe cuántos puntos cuesta (entre 1 y 100.000).";return}
+  $("eRw").textContent="";$("rwGuardar").disabled=true;
+  try{const nuevo=!RWE.id;await api.saveReward({id:RWE.id,nombre,descripcion:$("rwDesc").value.trim(),costo,activo:$("rwActivo").checked});await trasCambiarPremios(nuevo?"Premio agregado":"Premio actualizado")}
+  catch(err){$("eRw").textContent=err.message}
+  finally{$("rwGuardar").disabled=false}
+});
+$("rwBorrar").addEventListener("click",async()=>{
+  if(!RWE?.id)return;
+  if(!RWE.borrarPend){RWE.borrarPend=true;$("rwBorrar").textContent="¿Seguro? Eliminar premio";return}
+  try{await api.deleteReward(RWE.id);await trasCambiarPremios("Premio eliminado")}catch(err){$("eRw").textContent=err.message}
+});
+
 /* ---------- Editar productos del menú ---------- */
 let EDIT=null;   // {id, img, nuevaFoto, quitar, borrarPend}
 async function achicarFoto(file){
@@ -1618,6 +1680,12 @@ document.addEventListener("click",async e=>{
     try{if(tipo==="p"){await api.deletePromo(id);PROMOS=await api.promos();toast("Promoción borrada")}else{await api.deleteAviso(id);AVISOS=await api.avisos();toast("Aviso quitado")}await loadAjustes()}catch(err){toast(err.message,true)}
   }
   if(b.dataset.guia){abrirGuia();return}
+  if(b.dataset.rwedit){const id=isNaN(+b.dataset.rwedit)?b.dataset.rwedit:+b.dataset.rwedit;abrirRw(RWS.find(r=>r.id===id))}
+  if(b.dataset.rwtoggle){
+    const id=isNaN(+b.dataset.rwtoggle)?b.dataset.rwtoggle:+b.dataset.rwtoggle, r=RWS.find(x=>x.id===id);
+    const estaba=r.activo;
+    try{await api.saveReward({...r,activo:!estaba});REWARDS=await api.rewards();await pintarPremiosAdmin();if(P)render();toast(estaba?"Premio pausado":"Premio visible otra vez")}catch(err){toast(err.message,true)}
+  }
   if(b.dataset.editprod){const id=isNaN(+b.dataset.editprod)?b.dataset.editprod:+b.dataset.editprod;abrirEditor(PRODS.find(p=>p.id===id))}
   if(b.dataset.sheet){const id=+b.dataset.sheet;try{renderSheet(`Tanda #${id}`,await api.loteCodes(id))}catch(err){toast("No pudimos cargar la hoja.",true)}}
   if(b.dataset.anular){
