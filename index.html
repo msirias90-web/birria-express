@@ -536,7 +536,8 @@ button.sticker{cursor:pointer}
       <div class="label">Tandas</div>
       <div class="list" id="lotesList"></div>
       <div id="sheetWrap" style="display:grid;gap:10px" hidden>
-        <div class="row"><div class="label" id="sheetTitle">Hoja de stickers</div><button class="btn" id="printBtn">Imprimir hoja</button></div>
+        <div class="row"><div class="label" id="sheetTitle">Hoja de stickers</div><button class="btn" id="printBtn">Imprimir o guardar PDF</button></div>
+        <p class="note" style="text-align:left;margin:0">Se genera un PDF tamaño carta con 24 stickers por hoja. En el celular se abre el menú de compartir: elige <b>Imprimir</b> o guárdalo para imprimirlo desde la computadora.</p>
         <p class="note" style="text-align:left;margin:0" id="sheetNote">Pega un sticker dentro de cada pedido. Solo aparecen los códigos que aún no se han usado.</p>
         <div class="sheet" id="sheet"></div>
       </div>
@@ -546,8 +547,7 @@ button.sticker{cursor:pointer}
         <div id="qrApp"></div>
         <div class="code" style="font-size:12px;letter-spacing:.02em;word-break:break-all" id="qrAppUrl"></div>
         <div class="row" style="justify-content:center">
-          <button class="btn" type="button" id="qrDescargar">Descargar afiche</button>
-          <button class="btn ghost" type="button" id="qrImprimir">Imprimir</button>
+          <button class="btn" type="button" id="qrDescargar">Compartir o imprimir afiche</button>
           <button class="btn ghost" type="button" id="qrCopiar">Copiar enlace</button>
         </div>
       </div>
@@ -1090,8 +1090,16 @@ function showResult(r){
 async function procesar(txt){
   if(busy)return;busy=true;
   try{
-    if(!P){store.set("be-pending",normCodigo(txt)||txt);return}
-    const r=await api.scan(txt);
+    const cod=normCodigo(txt);
+    if(!cod){
+      // No es un sticker de puntos: no se envía al servidor ni cuenta como intento fallido
+      const esApp=/birria-express/i.test(String(txt))||String(txt).split("#")[0].replace(/\/$/,"")===URL_APP().replace(/\/$/,"");
+      showResult({ok:false,motivo:"noes",mensaje:esApp?"Este es el QR para abrir la app. No suma puntos.":"Este QR no es un código de puntos de Birria Express."});
+      $("scanResult").querySelector(".sub").textContent="Escanea el sticker que viene dentro de tu pedido.";
+      return;
+    }
+    if(!P){store.set("be-pending",cod);return}
+    const r=await api.scan(cod);
     if(r.ok)await refresh();
     showResult(r);
   }catch(err){showResult({ok:false,mensaje:err.message})}
@@ -1362,7 +1370,50 @@ async function renderLotes(){
     }).join(""):`<div class="empty">Todavía no has generado códigos.</div>`;
   }catch(err){$("lotesList").innerHTML=`<div class="empty">No pudimos cargar las tandas.</div>`}
 }
+let HOJA=null, ARCHIVO_HOJA=null, ARCHIVO_AFICHE=null;
+function cargarJsPDF(){
+  if(window.jspdf)return Promise.resolve(window.jspdf.jsPDF);
+  if(!cargarJsPDF.p)cargarJsPDF.p=new Promise((ok,mal)=>{
+    const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s.onload=()=>ok(window.jspdf.jsPDF);s.onerror=()=>{cargarJsPDF.p=null;mal(new Error("No se pudo preparar el PDF. Revisa tu internet e intenta de nuevo."))};
+    document.head.appendChild(s);
+  });
+  return cargarJsPDF.p;
+}
+function qrDataURL(texto){
+  const d=document.createElement("div");
+  new QRCode(d,{text:texto,width:320,height:320,colorDark:"#1c1612",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M});
+  return d.querySelector("canvas").toDataURL("image/png");
+}
+// Hoja carta con 24 stickers (4 columnas x 6 filas) y líneas de corte
+async function stickersPDF(codigos){
+  const JsPDF=await cargarJsPDF();
+  const doc=new JsPDF({unit:"mm",format:"letter"});
+  const M=10, COLS=4, FILAS=6, W=(215.9-2*M)/COLS, H=(279.4-2*M)/FILAS;
+  codigos.forEach((c,i)=>{
+    const k=i%(COLS*FILAS);if(i>0&&k===0)doc.addPage();
+    const x=M+(k%COLS)*W, y=M+Math.floor(k/COLS)*H;
+    doc.setDrawColor(217,195,160);doc.setLineDashPattern([1.2,1.2],0);doc.setLineWidth(0.2);doc.rect(x,y,W,H);
+    doc.addImage(LOGO,"PNG",x+W/2-3,y+1.6,6,6);
+    doc.setFont("helvetica","bold");doc.setFontSize(8.5);doc.setTextColor(28,22,18);
+    doc.text("Escanea y suma puntos",x+W/2,y+10.9,{align:"center"});
+    doc.addImage(qrDataURL(contenidoQR(c.codigo)),"PNG",x+W/2-11,y+13.6,22,22);
+    doc.setFont("courier","bold");doc.setFontSize(7);doc.text(c.codigo,x+W/2,y+39.4,{align:"center"});
+    doc.setFont("helvetica","normal");doc.setFontSize(6);doc.setTextColor(91,74,53);doc.text("Vence "+fechaCorta(c.vence),x+W/2,y+41.9,{align:"center"});
+  });
+  return new File([doc.output("blob")],"stickers-birria-express.pdf",{type:"application/pdf"});
+}
+// Abre el menú de compartir del celular (ahí están Imprimir y Guardar). En la computadora, descarga el archivo.
+async function entregarArchivo(file){
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file],title:file.name});return "ok"}
+    catch(e){if(e&&e.name==="AbortError")return "cancelado";if(e&&e.name==="NotAllowedError")return "otro-toque";}
+  }
+  const url=URL.createObjectURL(file);const a=document.createElement("a");a.href=url;a.download=file.name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);return "descargado";
+}
 function renderSheet(titulo,codigos){
+  HOJA={titulo,codigos};ARCHIVO_HOJA=null;$("printBtn").textContent="Imprimir o guardar PDF";
   $("sheetWrap").hidden=false;$("sheetTitle").textContent=titulo;
   $("sheetNote").textContent=(DEMO?"Modo demo: toca un sticker para probar el escaneo. ":"")+"Pega un sticker dentro de cada pedido. Solo aparecen los códigos que aún no se han usado.";
   const sh=$("sheet");sh.innerHTML="";
@@ -1385,7 +1436,16 @@ $("fGen").addEventListener("submit",async e=>{
   try{const r=await api.generate(n,d,pt);await renderLotes();renderSheet(`Tanda nueva · ${n} códigos de ${pts(pt)} pts`,r.codigos);toast(`Generaste ${n} códigos de ${pts(pt)} pts`)}
   catch(err){$("eGen").textContent=err.message}
 });
-$("printBtn").addEventListener("click",()=>{document.body.classList.remove("imprimir-qr");try{window.print()}catch(e){}});
+$("printBtn").addEventListener("click",async()=>{
+  if(!HOJA||!HOJA.codigos.length){toast("No hay stickers para imprimir.",true);return}
+  const b=$("printBtn");
+  try{
+    if(!ARCHIVO_HOJA){b.disabled=true;b.textContent="Preparando PDF…";ARCHIVO_HOJA=await stickersPDF(HOJA.codigos);b.disabled=false}
+    const r=await entregarArchivo(ARCHIVO_HOJA);
+    if(r==="otro-toque"){b.textContent="Abrir PDF para imprimir";toast("PDF listo. Toca el botón otra vez para imprimirlo o guardarlo.")}
+    else{b.textContent="Imprimir o guardar PDF";if(r==="descargado")toast("PDF descargado. Ábrelo para imprimir.")}
+  }catch(err){b.disabled=false;b.textContent="Imprimir o guardar PDF";toast(err.message,true)}
+});
 
 /* ---------- Notificaciones al celular ---------- */
 const ES_IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
@@ -1552,16 +1612,13 @@ async function afichePNG(){
   return await new Promise(r=>c.toBlob(r,"image/png"));
 }
 $("qrDescargar").addEventListener("click",async()=>{
+  const b=$("qrDescargar");
   try{
-    const blob=await afichePNG();const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");a.href=url;a.download="qr-birria-express.png";document.body.appendChild(a);a.click();a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),4000);toast("Afiche descargado");
-  }catch(e){toast("No se pudo descargar. Prueba desde la computadora.",true)}
-});
-$("qrImprimir").addEventListener("click",()=>{
-  $("qrPosterLogo").src=LOGO;$("qrPosterUrl").textContent=URL_APP();$("qrPosterCode").innerHTML="";
-  try{new QRCode($("qrPosterCode"),{text:URL_APP(),width:300,height:300,colorDark:"#1c1612",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.H})}catch(e){}
-  document.body.classList.add("imprimir-qr");setTimeout(()=>{try{window.print()}catch(e){}document.body.classList.remove("imprimir-qr")},300);
+    if(!ARCHIVO_AFICHE){b.disabled=true;b.textContent="Preparando…";ARCHIVO_AFICHE=new File([await afichePNG()],"qr-birria-express.png",{type:"image/png"});b.disabled=false}
+    const r=await entregarArchivo(ARCHIVO_AFICHE);
+    if(r==="otro-toque"){b.textContent="Abrir afiche";toast("Afiche listo. Toca el botón otra vez.")}
+    else{b.textContent="Compartir o imprimir afiche";if(r==="descargado")toast("Afiche descargado")}
+  }catch(e){b.disabled=false;b.textContent="Compartir o imprimir afiche";toast("No se pudo preparar el afiche. Intenta de nuevo.",true)}
 });
 $("qrCopiar").addEventListener("click",()=>copiar(URL_APP(),"Enlace copiado"));
 
