@@ -833,6 +833,28 @@ function demoSave(){store.set("be-demo3",JSON.stringify(D))}
 function codigoAleatorio(){const b=new Uint8Array(12);crypto.getRandomValues(b);let s="";b.forEach((x,i)=>{s+=ALFABETO[x%32];if(i===3||i===7)s+="-"});return "BE-"+s}
 const HORA=3600e3, DIA=24*HORA;
 
+// Antes de cada consulta importante: renueva la sesión si está por vencer y reintenta una vez si falla
+const esErrorSesion=e=>e&&(e.status===401||/JWT|token|expired|PGRST30/i.test(String(e.code)+" "+String(e.message)));
+const esErrorRed=e=>e&&(/fetch|network|Load failed|Failed to fetch|NetworkError|timeout/i.test(String(e.message)+" "+String(e.details||"")));
+async function rpcConSesion(nombre,args){
+  try{
+    const {data:s}=await sb.auth.getSession();
+    const exp=s?.session?.expires_at||0;
+    if(s?.session&&exp*1000-Date.now()<120000)await sb.auth.refreshSession();
+  }catch(e){}
+  let r=await sb.rpc(nombre,args);
+  if(r.error&&esErrorSesion(r.error)){try{await sb.auth.refreshSession()}catch(e){}r=await sb.rpc(nombre,args)}
+  else if(r.error&&esErrorRed(r.error)){await new Promise(ok=>setTimeout(ok,1500));r=await sb.rpc(nombre,args)}
+  return r;
+}
+if(sb){
+  // Cuando la app vuelve a primer plano (por ejemplo en iPhone), renueva la sesión de inmediato
+  document.addEventListener("visibilitychange",()=>{
+    if(document.visibilityState==="visible"){try{sb.auth.startAutoRefresh();sb.auth.getSession()}catch(e){}}
+    else{try{sb.auth.stopAutoRefresh()}catch(e){}}
+  });
+}
+
 const api = DEMO ? {
   async session(){return D.user},
   async google(){D.user={id:"demo",email:"cliente@gmail.com",user_metadata:{full_name:"Ana Mora"}};demoSave();return false},
@@ -988,7 +1010,7 @@ const api = DEMO ? {
   },
   async removePhoto(url){const m=String(url||"").split("/storage/v1/object/public/menu/")[1];if(m)await sb.storage.from("menu").remove([decodeURIComponent(m)])},
   async saveProductPoints(cambios){for(const c of cambios){const {error}=await sb.from("productos").update({puntos:c.puntos}).eq("id",c.id);if(error)throw new Error(error.message)}},
-  async redeemProduct(id){const {data,error}=await sb.rpc("canjear_producto",{p_producto:id});if(error)throw new Error(error.message.includes("insuficientes")?"No te alcanzan los puntos para este producto.":error.message);return data},
+  async redeemProduct(id){const {data,error}=await rpcConSesion("canjear_producto",{p_producto:id});if(error)throw new Error(error.message.includes("insuficientes")?"No te alcanzan los puntos para este producto.":error.message);return data},
   async savePush(endpoint,p256dh,auth){const {error}=await sb.rpc("guardar_suscripcion",{p_endpoint:endpoint,p_p256dh:p256dh,p_auth:auth});if(error)throw new Error(error.message)},
   async deletePush(endpoint){await sb.rpc("borrar_suscripcion",{p_endpoint:endpoint})},
   async sendPush(titulo,mensaje){
@@ -1007,8 +1029,18 @@ const api = DEMO ? {
   async deliver(txt){const {data,error}=await sb.rpc("entregar_canje",{p_codigo:txt});if(error)throw new Error(error.message);return data},
   async cancelRedemption(id){const {data,error}=await sb.rpc("cancelar_canje",{p_id:id});if(error)throw new Error(error.message);return data},
   async adminClients(){const {data,error}=await sb.from("admin_clientes").select("*").order("creado",{ascending:false}).limit(1000);if(error)throw new Error(error.message);return data},
-  async redeem(id){const {data,error}=await sb.rpc("canjear",{p_recompensa:id});if(error)throw new Error(error.message.includes("insuficientes")?"No te alcanzan los puntos para esta recompensa.":error.message);return data},
-  async scan(txt){const {data,error}=await sb.rpc("canjear_codigo",{p_codigo:normCodigo(txt)||String(txt).slice(0,40)});if(error)throw new Error("No pudimos revisar el código. Revisa tu conexión e inténtalo de nuevo.");return data},
+  async redeem(id){const {data,error}=await rpcConSesion("canjear",{p_recompensa:id});if(error)throw new Error(error.message.includes("insuficientes")?"No te alcanzan los puntos para esta recompensa.":error.message);return data},
+  async scan(txt){
+    const codigo=normCodigo(txt)||String(txt).slice(0,40);
+    let {data,error}=await rpcConSesion("canjear_codigo",{p_codigo:codigo});
+    if(error){
+      console.error("canjear_codigo",error);
+      const e=new Error("No pudimos revisar el código. Revisa tu conexión e inténtalo de nuevo.");
+      e.detalle=[error.code,error.message,error.details,error.hint].filter(Boolean).join(" · ")||String(error);
+      throw e;
+    }
+    if(!data||typeof data!=="object"){const e=new Error("El servidor respondió algo inesperado.");e.detalle=JSON.stringify(data);throw e}
+    return data},
   async generate(n,dias,puntos){const {data,error}=await sb.rpc("generar_codigos",{p_cantidad:n,p_dias:dias,p_puntos:puntos});if(error)throw new Error(error.message);return {lote:null,codigos:data.map(r=>({codigo:r.codigo_qr,vence:r.vence_en}))}},
   async lotes(){const {data,error}=await sb.from("resumen_lotes").select("*").order("id",{ascending:false}).limit(30);if(error)throw error;return data},
   async loteCodes(id){const {data,error}=await sb.from("codigos").select("codigo,vence").eq("lote",id).is("usado_en",null).gt("vence",new Date().toISOString()).order("codigo");if(error)throw error;return data},
@@ -1102,7 +1134,10 @@ async function procesar(txt){
     const r=await api.scan(cod);
     if(r.ok)await refresh();
     showResult(r);
-  }catch(err){showResult({ok:false,mensaje:err.message})}
+  }catch(err){
+    showResult({ok:false,mensaje:err.message});
+    if(err.detalle){const s=$("scanResult").querySelector(".sub");s.textContent="Detalle para soporte: "+err.detalle;s.style.fontSize="12px";s.style.wordBreak="break-word"}
+  }
   finally{busy=false}
 }
 $("camBtn").addEventListener("click",async()=>{
