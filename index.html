@@ -744,7 +744,7 @@ button.sticker{cursor:pointer}
    ========================================================= */
 const SUPABASE_URL = "https://iavhpdpmsonysqcsjdtx.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_UYeU2l3q8zN0XVXr3Q5yMQ_sTsVKUxA";   // clave pública (publishable)
-const APP_VERSION = "2026.11.10";   // cambia en cada actualización
+const APP_VERSION = "2026.11.10b";   // cambia en cada actualización
 const APP_URL = "https://msirias90-web.github.io/birria-express/";  // dirección pública de la app
                                 // Los QR impresos abren esta dirección con el código incluido.
 const VAPID_PUBLIC = "BPNh6J5_jkRtMbifD1FbiXOaSuPwuvGM1BOM8_WDMUHBhlGv-LwtqE4ZQLEbrN8BJfKI9p-_UaY0sv-vmrm6KEI";  // clave pública de notificaciones (la privada va solo en Supabase)
@@ -951,7 +951,8 @@ const api = DEMO ? {
     const fail=()=>{D.fails.push(now);demoSave();return {ok:false,motivo:"invalido",mensaje:"Este código no es válido."}};
     if(!c)return fail();
     const hoy=Object.values(D.codes).filter(x=>x.usado_por==="demo"&&now-x.usado_en<DIA).length;
-    if(hoy>=3)return {ok:false,motivo:"limite",mensaje:"Llegaste al máximo de 3 códigos por día. Guarda este y escanéalo mañana."};
+    // límite diario desactivado de momento
+    if(false&&hoy>=3)return {ok:false,motivo:"limite",mensaje:"Llegaste al máximo de 3 códigos por día. Guarda este y escanéalo mañana."};
     const row=D.codes[c];
     if(!row)return fail();
     if(row.usado_en)return {ok:false,motivo:"usado",mensaje:`Este código ya fue escaneado el ${fechaCorta(row.usado_en)} a las ${hora(row.usado_en)}.`};
@@ -1058,6 +1059,7 @@ function toast(m,err){const t=$("toast");t.textContent=m;t.className="toast"+(er
 function go(v){
   if(v==="admin"&&!STAFF)v="inicio";
   if(view==="escanear"&&v!=="escanear")stopCam();
+  if(view==="premios"&&v!=="premios")$("redeemBox").hidden=true;
   view=v;
   document.querySelectorAll("[data-view]").forEach(s=>s.hidden=s.dataset.view!==v);
   document.querySelectorAll("nav button").forEach(b=>b.dataset.go===v?b.setAttribute("aria-current","page"):b.removeAttribute("aria-current"));
@@ -1102,6 +1104,8 @@ function render(){
   av+=visibles.map(a=>`<div class="aviso"><strong>${esc(a.titulo)}</strong><p>${esc(a.mensaje)}</p></div>`).join("");
   $("avisosBox").innerHTML=av;$("avisosBox").hidden=!av;
   const WA="https://wa.me/50660807887?text=";
+  const rbCod=$("redeemCode").textContent, rbCj=MISCJ.find(c=>c.codigo===rbCod);
+  if(rbCj&&rbCj.estado!=="pendiente")$("redeemBox").hidden=true;
   $("misCanjesWrap").hidden=!MISCJ.length;
   $("misCanjes").innerHTML=MISCJ.map(c=>`<div class="cj"><div><strong>${esc(c.nombre)}</strong><div class="d">${fechaCorta(c.creado)} · <span class="code">${esc(c.codigo)}</span></div></div><span class="chip-st ${c.estado}">${{pendiente:"Por entregar",entregado:"Entregado",cancelado:"Cancelado"}[c.estado]}</span>${c.estado==="pendiente"?`<div class="acts"><a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="${WA+encodeURIComponent(`Hola Birria Express, quiero canjear mi premio: ${c.nombre}. Código: ${c.codigo}`)}">Enviar código por WhatsApp</a></div>`:""}</div>`).join("");
   $("histList").innerHTML=HIST.length?HIST.map(h=>`<div class="hist"><div>${esc(h.t)}</div><div class="${h.v>0?"plus":"minus"}">${h.v>0?"+":"−"}${pts(Math.abs(h.v))}</div><div class="d">${fecha(h.d)}</div></div>`).join(""):`<div class="empty">Aún no tienes movimientos. Escanea el código de tu próximo pedido.</div>`;
@@ -1827,6 +1831,7 @@ async function arrancar(){
 }
 $("retryBtn").addEventListener("click",async()=>{$("retryBtn").disabled=true;await arrancar();$("retryBtn").disabled=false});
 
+$("redeemWa").addEventListener("click",()=>setTimeout(()=>{$("redeemBox").hidden=true},600));
 document.querySelectorAll(".verTxt").forEach(e=>e.textContent=APP_VERSION);
 </script>
 
