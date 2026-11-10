@@ -490,6 +490,7 @@ button.sticker{cursor:pointer}
     <div>
       <div class="label">Solo para el personal</div>
       <h2>Panel del negocio</h2>
+      <p class="note" style="text-align:left;margin:2px 0 0;font-size:12px;opacity:.7">Versión de la app: <b class="verTxt"></b></p>
     </div>
     <div class="seg" role="group" aria-label="Secciones del panel">
       <button data-atab="resumen" aria-pressed="true">Resumen</button>
@@ -686,6 +687,7 @@ button.sticker{cursor:pointer}
     <div class="list" id="histList"></div>
     <button class="btn ghost" id="logoutBtn">Cerrar sesión</button>
     <button class="btn ghost" id="resetBtn" hidden>Reiniciar demo</button>
+    <p class="note app-ver" style="margin:4px 0 0;font-size:12px;opacity:.7">Versión <span class="verTxt"></span></p>
   </section>
 </main>
 
@@ -742,6 +744,7 @@ button.sticker{cursor:pointer}
    ========================================================= */
 const SUPABASE_URL = "https://iavhpdpmsonysqcsjdtx.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_UYeU2l3q8zN0XVXr3Q5yMQ_sTsVKUxA";   // clave pública (publishable)
+const APP_VERSION = "2026.11.10";   // cambia en cada actualización
 const APP_URL = "https://msirias90-web.github.io/birria-express/";  // dirección pública de la app
                                 // Los QR impresos abren esta dirección con el código incluido.
 const VAPID_PUBLIC = "BPNh6J5_jkRtMbifD1FbiXOaSuPwuvGM1BOM8_WDMUHBhlGv-LwtqE4ZQLEbrN8BJfKI9p-_UaY0sv-vmrm6KEI";  // clave pública de notificaciones (la privada va solo en Supabase)
@@ -1823,6 +1826,8 @@ async function arrancar(){
   }catch(err){go("sinconexion")}
 }
 $("retryBtn").addEventListener("click",async()=>{$("retryBtn").disabled=true;await arrancar();$("retryBtn").disabled=false});
+
+document.querySelectorAll(".verTxt").forEach(e=>e.textContent=APP_VERSION);
 </script>
 
 </body>
